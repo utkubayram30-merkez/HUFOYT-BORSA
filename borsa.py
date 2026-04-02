@@ -15,7 +15,7 @@ SENARYOLAR = {
     "⚖️ STABİL PİYASA": (-0.04, 0.04, "Yatay seyir devam ediyor.")
 }
 
-if 'init_final' not in st.session_state:
+if 'init_final_v2' not in st.session_state:
     st.session_state.update({
         'prices': {k: random.uniform(90, 110) for k in SIRKETLER},
         'history': {k: [100.0] for k in SIRKETLER},
@@ -28,7 +28,7 @@ if 'init_final' not in st.session_state:
         'selected_stock': "Aselsan",
         'user_id': "",
         'current_scenario': "⚖️ STABİL PİYASA",
-        'init_final': True
+        'init_final_v2': True
     })
 
 # --- 3. GİRİŞ SİSTEMİ ---
@@ -86,8 +86,12 @@ with cr:
     fiyat = st.session_state.prices[st.session_state.selected_stock]
     st.write(f"Nakit: **{round(st.session_state.cash, 2)} TL**")
     
-    my_df = pd.DataFrame([{"Hisse": k, "Adet": v} for k, v in st.session_state.portfolio.items() if v > 0])
-    st.dataframe(my_df if not my_df.empty else "Portföy boş.", use_container_width=True, hide_index=True)
+    # HATA BURADAYDI, DÜZELTİLDİ:
+    my_p_data = [{"Hisse": k, "Adet": v} for k, v in st.session_state.portfolio.items() if v > 0]
+    if my_p_data:
+        st.dataframe(pd.DataFrame(my_p_data), use_container_width=True, hide_index=True)
+    else:
+        st.info("Portföyünüz şu an boş.")
 
     mik = st.number_input("Adet", min_value=1, value=100)
     b_al, b_sat = st.columns(2)
@@ -108,7 +112,6 @@ st.subheader("🤖 AI Strateji Masası")
 st.info(f"🗨️ **AI Kararı:** {st.session_state.ai_log}")
 
 if st.button("🚀 SONRAKİ TUR (Piyasayı Değiştir)", use_container_width=True):
-    # Yeni Senaryo Seç
     st.session_state.current_scenario = random.choice(list(SENARYOLAR.keys()))
     min_ch, max_ch, _ = SENARYOLAR[st.session_state.current_scenario]
     
@@ -118,22 +121,19 @@ if st.button("🚀 SONRAKİ TUR (Piyasayı Değiştir)", use_container_width=Tru
         change = random.uniform(min_ch, max_ch)
         st.session_state.prices[k] *= (1 + change)
         
-        # --- AKILLI AI MANTIĞI ---
-        # 1. Kâr Al / Risk Yönetimi: Ayı piyasasında veya %10+ kârda hisse satar
+        # AI MANTIĞI: Ayı piyasasında veya çok kârda nakite geçer
         if (st.session_state.current_scenario == "🐻 AYI PİYASASI" or change > 0.10) and st.session_state.ai_portfolio[k] > 0:
-            sat_mik = st.session_state.ai_portfolio[k] // 2
-            st.session_state.ai_cash += st.session_state.prices[k] * sat_mik
-            st.session_state.ai_portfolio[k] -= sat_mik
-            ai_actions.append(f"{k} nakite geçildi.")
-        
-        # 2. Alttan Toplama: Boğa piyasasında veya çok düşmüşse alır
+            sat_m = st.session_state.ai_portfolio[k]
+            st.session_state.ai_cash += st.session_state.prices[k] * sat_m
+            st.session_state.ai_portfolio[k] = 0
+            ai_actions.append(f"{k} NAKİTE GEÇİLDİ")
         elif (st.session_state.current_scenario == "🐂 BOĞA PİYASASI" or change < -0.07) and st.session_state.ai_cash > st.session_state.prices[k] * 20:
             st.session_state.ai_cash -= st.session_state.prices[k] * 20
             st.session_state.ai_portfolio[k] += 20
-            ai_actions.append(f"{k} takviye edildi.")
+            ai_actions.append(f"{k} ALINDI")
 
     st.session_state.round += 1
-    st.session_state.ai_log = " | ".join(list(set(ai_actions))[:3]) if ai_actions else "AI nakit dengesini koruyor."
+    st.session_state.ai_log = " | ".join(list(set(ai_actions))[:3]) if ai_actions else "AI bekliyor."
     st.balloons()
     st.rerun()
 
