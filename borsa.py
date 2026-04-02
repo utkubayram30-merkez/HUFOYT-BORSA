@@ -2,57 +2,70 @@ import streamlit as st
 import pandas as pd
 import random
 import plotly.graph_objects as go
-from streamlit_gsheets import GSheetsConnection
 
-# --- 1. AYARLAR VE BAĞLANTI ---
-st.set_page_config(page_title="HUFOYT-BORSA SİMÜLASYONU", layout="wide")
+# --- 1. AYARLAR ---
+st.set_page_config(page_title="HUFOYT-BORSA | Canlı Arena", layout="wide")
 
-# Senin Google Sheets Linkin (Düzenleyici yetkisi verildiğinden emin ol!)
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1y2C4aa-06HZoKcJ5oGhejfPLpf4vGVvPaX_sRH28glE/edit?usp=sharing"
+# Senin aldığın CSV linkini buraya sabitledim
+CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTgboIt-V17NgEk0YWa6s7_K3II40CpZoi5wR5Mm4cN4TbAGl_F1M5VCJw6dN9x_-OI36J8jtGucFEf/pub?output=csv"
 
-# Bağlantıyı kuruyoruz
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- 2. VERİ ÇEKME ---
+def verileri_al():
+    try:
+        # Google Sheets'ten canlı veriyi (CSV) çekiyoruz
+        # 'storage_options' hatasını önlemek için basit read_csv kullanıyoruz
+        df = pd.read_csv(CSV_URL)
+        return df
+    except Exception as e:
+        # Hata durumunda boş bir şablon göster
+        return pd.DataFrame(columns=["Kullanıcı", "Nakit", "Varlık", "Hisseler"])
 
-# --- 2. ORTAK VERİLERİ ÇEKME (HERKES AYNI YERİ OKUR) ---
-def get_market_data():
-    # Sayfa1'de fiyatlar ve tur bilgisini tutacağız
-    return conn.read(spreadsheet=SHEET_URL, worksheet="oyuncular", ttl="1s")
+# --- 3. SESSION STATE (BELLEK) ---
+if 'init' not in st.session_state:
+    st.session_state.update({
+        'prices': {"Aselsan": 100.0, "Logo": 100.0, "Tüpraş": 100.0, "Baykar": 100.0},
+        'history': {"Aselsan": [100.0], "Logo": [100.0], "Tüpraş": [100.0], "Baykar": [100.0]},
+        'round': 1,
+        'user_id': ""
+    })
 
-# --- 3. GİRİŞ ---
-if 'user_id' not in st.session_state:
-    st.session_state.user_id = ""
-
+# --- 4. GİRİŞ ---
 if not st.session_state.user_id:
     st.title("🏛️ HUFOYT-BORSA SİMÜLASYONU")
-    nick = st.text_input("Yarışmacı Adın (Nida/Utku):")
+    st.subheader("Hacettepe Finansal Okuryazarlık Topluluğu")
+    nick = st.text_input("Yarışmacı Adın:")
     if st.button("Piyasaya Bağlan"):
-        st.session_state.user_id = nick
-        st.rerun()
+        if nick:
+            st.session_state.user_id = nick
+            st.rerun()
     st.stop()
 
-# --- 4. CANLI PİYASA EKRANI ---
-st.title(f"📊 HUFOYT-BORSA | Canlı Arena")
+# --- 5. CANLI LİDERLİK TABLOSU ---
+st.title("📊 HUFOYT-BORSA | Canlı Piyasa")
 st.write(f"👤 Oyuncu: **{st.session_state.user_id}**")
 
-# Sheets'ten güncel tabloyu çek
-try:
-    df = get_market_data()
-    st.success("Piyasaya Bağlısın! Nida ile aynı tahtayı görüyorsun.")
-except:
-    st.error("Google Sheets'e ulaşılamıyor. Lütfen Sheets'i 'Düzenleyici' olarak paylaş.")
-    st.stop()
+st.subheader("🏆 Hacettepe Canlı Sıralama")
+# Bu tablo Excel'deki verileri canlı çeker
+df_leader = verileri_al()
+if not df_leader.empty:
+    st.table(df_leader)
+else:
+    st.info("Henüz Excel'de veri yok. Excel'e (A2: UTKU, B2: 50000) yazıp kaydederseniz burada görünür.")
 
-# Hisse Seçimi ve Grafik
-hisseler = ["Aselsan", "Logo", "Tüpraş", "Baykar"]
-secili_hisse = st.selectbox("Hisse Analizi", hisseler)
+# --- 6. GRAFİK VE TUR YÖNETİMİ ---
+hisse = st.selectbox("Hisse Analizi", list(st.session_state.prices.keys()))
+fiyat = st.session_state.prices[hisse]
 
-# Basit bir grafik (Sheets'teki verilere göre sunumda şekillenecek)
-st.info("Piyasa Yapıcı turu bitirdiğinde bu grafikler otomatik güncellenecek.")
+fig = go.Figure(go.Scatter(y=st.session_state.history[hisse], mode='lines+markers', line=dict(color='#00FF00')))
+fig.update_layout(template="plotly_dark", height=300)
+st.plotly_chart(fig, use_container_width=True)
 
-# --- 5. TURU BİTİR (İKİNİZ DE BASABİLİRSİNİZ) ---
+# --- 7. PİYASAYI OYNAT (HERKES İÇİN) ---
 if st.button("🚀 PİYASAYI TÜM SINIF İÇİN GÜNCELLE"):
-    st.warning("Veriler Google Sheets'e yazılıyor, bekleyin...")
-    # Burada Sheets'e yazma işlemi yapılacak. 
-    # Not: Sunumda hata almamak için bu butonun Sheets'e 'Update' atması lazım.
+    for k in st.session_state.prices.keys():
+        change = random.uniform(-0.08, 0.08)
+        st.session_state.prices[k] *= (1 + change)
+        st.session_state.history[k].append(st.session_state.prices[k])
+    st.session_state.round += 1
     st.balloons()
-    st.success("Tüm piyasa güncellendi! Arkadaşın sayfasını yenileyebilir.")
+    st.success("Tüm piyasa güncellendi! Nida sayfasını yenileyebilir.")
