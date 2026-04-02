@@ -7,14 +7,10 @@ import time
 # --- 1. AYARLAR VE OTOMATİK YENİLEME ---
 st.set_page_config(page_title="HUFOYT-BORSA TERMİNALİ", layout="wide")
 
-# SAYFAYI HER 5 SANİYEDE BİR KENDİ KENDİNE YENİLER (Botlar çalışsın diye)
-if "last_refresh" not in st.session_state:
-    st.session_state.last_refresh = time.time()
-
 # --- 2. VERİ SETİ ---
 SIRKETLER = ["Aselsan", "Logo", "Tüpraş", "Baykar", "Ereğli", "Sasa"]
 
-if 'init_v5' not in st.session_state:
+if 'init_v6' not in st.session_state:
     st.session_state.update({
         'prices': {k: random.uniform(90, 110) for k in SIRKETLER},
         'history': {k: [100.0] for k in SIRKETLER},
@@ -26,7 +22,7 @@ if 'init_v5' not in st.session_state:
         'ai_log': "AI analiz yapıyor...",
         'selected_stock': "Aselsan",
         'user_id': "",
-        'init_v5': True
+        'init_v6': True
     })
 
 # --- 3. GİRİŞ SİSTEMİ ---
@@ -40,15 +36,26 @@ if st.session_state.user_id == "":
     st.stop()
 
 # --- 4. OTO-PİYASA (BOT SİMÜLASYONU) ---
-# Sayfa her yenilendiğinde (5 sn'de bir veya işlem yapınca) botlar fiyatı titretir
 for k in SIRKETLER:
     bot_noise = random.uniform(-0.005, 0.005) 
     st.session_state.prices[k] *= (1 + bot_noise)
 
-# --- 5. CANLI ÜST TABELA ---
-st.title("🏛️ HUFOYT-BORSA CANLI TERMİNAL")
-st.write(f"👤 **Operatör:** {st.session_state.user_id} | ⏱ **TUR:** {st.session_state.round}")
+# --- 5. CANLI ÜST TABELA VE VARLIK GÖSTERGESİ ---
+# TOPLAM VARLIK HESAPLAMA (Nakit + Hisselerin Değeri)
+user_hisse_degeri = sum(st.session_state.portfolio[k] * st.session_state.prices[k] for k in SIRKETLER)
+user_toplam_varlik = st.session_state.cash + user_hisse_degeri
 
+st.title("🏛️ HUFOYT-BORSA CANLI TERMİNAL")
+
+# En üstte Toplam Varlık Metriği
+c1, c2, c3 = st.columns([1,1,1])
+c1.metric("👤 Kullanıcı", st.session_state.user_id)
+c2.metric("💰 Toplam Varlığınız", f"{round(user_toplam_varlik, 2)} TL")
+c3.metric("⏱ Mevcut Tur", st.session_state.round)
+
+st.markdown("---")
+
+# Canlı Fiyat Bandı
 cols = st.columns(len(SIRKETLER))
 for i, s in enumerate(SIRKETLER):
     f_suan = st.session_state.prices[s]
@@ -69,7 +76,6 @@ with cl:
     fig.update_layout(template="plotly_dark", height=350, margin=dict(l=0,r=0,b=0,t=0))
     st.plotly_chart(fig, use_container_width=True)
     
-    # Şirket Değiştirme Butonları
     st.write("Hisseler:")
     b_cols = st.columns(len(SIRKETLER))
     for i, s in enumerate(SIRKETLER):
@@ -78,17 +84,16 @@ with cl:
             st.rerun()
 
 with cr:
-    st.subheader("💰 Cüzdanım")
+    st.subheader("🏦 Cüzdanım & Portföy")
     fiyat = st.session_state.prices[st.session_state.selected_stock]
-    st.write(f"**Nakit:** {round(st.session_state.cash, 2)} TL")
+    st.write(f"**Boştaki Nakit:** {round(st.session_state.cash, 2)} TL")
     
-    # KULLANICI PORTFÖYÜNÜ GÖSTEREN TABLO
     my_p = [{"Hisse": k, "Adet": v, "Değer": round(v*st.session_state.prices[k], 2)} 
             for k, v in st.session_state.portfolio.items() if v > 0]
     if my_p:
         st.dataframe(pd.DataFrame(my_p), use_container_width=True, hide_index=True)
     else:
-        st.write("Henüz hiç hisseniz yok.")
+        st.write("Portföyünüz şu an boş.")
 
     st.divider()
     mik = st.number_input("Adet", min_value=1, value=100, step=10)
@@ -116,24 +121,22 @@ st.dataframe(ai_df, use_container_width=True, hide_index=True)
 
 # --- 8. TUR YÖNETİMİ ---
 st.divider()
-if st.button("🚀 SONRAKİ TURU BAŞLAT (Max %10 Hareket)", use_container_width=True):
+if st.button("🚀 SONRAKİ TURU BAŞLAT (Yeni Pazar Verileri)", use_container_width=True):
     for k in SIRKETLER:
         st.session_state.history[k].append(st.session_state.prices[k])
         change = random.uniform(-0.10, 0.10)
         st.session_state.prices[k] *= (1 + change)
         
-        # AI Strateji (Alttan toplama)
+        # AI Strateji (Otomatik Karar)
         if change < -0.06 and st.session_state.ai_cash > st.session_state.prices[k] * 20:
             st.session_state.ai_cash -= st.session_state.prices[k] * 20
             st.session_state.ai_portfolio[k] += 20
-            st.session_state.ai_log = f"{k} düşükten toplandı."
+            st.session_state.ai_log = f"{k} düşük fiyattan eklendi."
 
     st.session_state.round += 1
     st.balloons()
     st.rerun()
 
-# --- 9. OTOMATİK YENİLEME TETİKLEYİCİ ---
-# Bu kod sayfanın arka planda 5 saniyede bir yenilenmesini sağlar
-st.empty()
+# --- 9. OTO-YENİLEME ---
 time.sleep(5)
 st.rerun()
