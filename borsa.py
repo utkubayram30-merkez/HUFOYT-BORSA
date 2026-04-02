@@ -2,14 +2,19 @@ import streamlit as st
 import pandas as pd
 import random
 import plotly.graph_objects as go
+import time
 
-# --- 1. AYARLAR ---
+# --- 1. AYARLAR VE OTOMATİK YENİLEME ---
 st.set_page_config(page_title="HUFOYT-BORSA TERMİNALİ", layout="wide")
+
+# SAYFAYI HER 5 SANİYEDE BİR KENDİ KENDİNE YENİLER (Botlar çalışsın diye)
+if "last_refresh" not in st.session_state:
+    st.session_state.last_refresh = time.time()
 
 # --- 2. VERİ SETİ ---
 SIRKETLER = ["Aselsan", "Logo", "Tüpraş", "Baykar", "Ereğli", "Sasa"]
 
-if 'init_v4' not in st.session_state:
+if 'init_v5' not in st.session_state:
     st.session_state.update({
         'prices': {k: random.uniform(90, 110) for k in SIRKETLER},
         'history': {k: [100.0] for k in SIRKETLER},
@@ -18,10 +23,10 @@ if 'init_v4' not in st.session_state:
         'ai_cash': 100000.0,
         'ai_portfolio': {k: 0 for k in SIRKETLER},
         'round': 1,
-        'ai_log': "AI piyasayı izliyor...",
+        'ai_log': "AI analiz yapıyor...",
         'selected_stock': "Aselsan",
         'user_id': "",
-        'init_v4': True
+        'init_v5': True
     })
 
 # --- 3. GİRİŞ SİSTEMİ ---
@@ -35,21 +40,22 @@ if st.session_state.user_id == "":
     st.stop()
 
 # --- 4. OTO-PİYASA (BOT SİMÜLASYONU) ---
-# Sen butona basmasan da her etkileşimde botlar fiyatları titretir
+# Sayfa her yenilendiğinde (5 sn'de bir veya işlem yapınca) botlar fiyatı titretir
 for k in SIRKETLER:
-    bot_pressure = random.uniform(-0.006, 0.006) # %0.6'lık bot dalgalanması
-    st.session_state.prices[k] *= (1 + bot_pressure)
+    bot_noise = random.uniform(-0.005, 0.005) 
+    st.session_state.prices[k] *= (1 + bot_noise)
 
-# --- 5. CANLI TABELA ---
+# --- 5. CANLI ÜST TABELA ---
 st.title("🏛️ HUFOYT-BORSA CANLI TERMİNAL")
-st.markdown(f"👤 **Operatör:** {st.session_state.user_id} | ⏱ **TUR:** {st.session_state.round}")
+st.write(f"👤 **Operatör:** {st.session_state.user_id} | ⏱ **TUR:** {st.session_state.round}")
 
 cols = st.columns(len(SIRKETLER))
 for i, s in enumerate(SIRKETLER):
     f_suan = st.session_state.prices[s]
     f_once = st.session_state.history[s][-1]
     degisim = ((f_suan - f_once) / f_once) * 100
-    cols[i].metric(s, f"{round(f_suan, 2)} TL", f"{round(degisim, 2)}%")
+    color = "inverse" if degisim < 0 else "normal"
+    cols[i].metric(s, f"{round(f_suan, 2)} TL", f"{round(degisim, 2)}%", delta_color=color)
 
 st.divider()
 
@@ -57,44 +63,52 @@ st.divider()
 cl, cr = st.columns([2, 1])
 
 with cl:
-    st.subheader(f"📈 {st.session_state.selected_stock} Anlık Grafiği")
+    st.subheader(f"📈 {st.session_state.selected_stock} Teknik Görünüm")
     fig = go.Figure(go.Scatter(y=st.session_state.history[st.session_state.selected_stock] + [st.session_state.prices[st.session_state.selected_stock]], 
                                mode='lines+markers', line=dict(color='#00FF00', width=2)))
-    fig.update_layout(template="plotly_dark", height=400)
+    fig.update_layout(template="plotly_dark", height=350, margin=dict(l=0,r=0,b=0,t=0))
     st.plotly_chart(fig, use_container_width=True)
     
-    # Hızlı Hisse Değiştirme (Tıklayınca fiyatlar da oto güncellenir)
-    st.write("Şirket Seçimi:")
+    # Şirket Değiştirme Butonları
+    st.write("Hisseler:")
     b_cols = st.columns(len(SIRKETLER))
     for i, s in enumerate(SIRKETLER):
-        if b_cols[i].button(s):
+        if b_cols[i].button(s, key=f"nav_{s}"):
             st.session_state.selected_stock = s
             st.rerun()
 
 with cr:
-    st.subheader("🏦 Cüzdan & Emir")
+    st.subheader("💰 Cüzdanım")
     fiyat = st.session_state.prices[st.session_state.selected_stock]
-    st.info(f"**Nakit:** {round(st.session_state.cash, 2)} TL")
-    st.write(f"**Elinizde:** {st.session_state.portfolio[st.session_state.selected_stock]} Adet")
+    st.write(f"**Nakit:** {round(st.session_state.cash, 2)} TL")
     
-    mik = st.number_input("İşlem Miktarı", min_value=1, value=100, step=10)
+    # KULLANICI PORTFÖYÜNÜ GÖSTEREN TABLO
+    my_p = [{"Hisse": k, "Adet": v, "Değer": round(v*st.session_state.prices[k], 2)} 
+            for k, v in st.session_state.portfolio.items() if v > 0]
+    if my_p:
+        st.dataframe(pd.DataFrame(my_p), use_container_width=True, hide_index=True)
+    else:
+        st.write("Henüz hiç hisseniz yok.")
+
+    st.divider()
+    mik = st.number_input("Adet", min_value=1, value=100, step=10)
     cal, csat = st.columns(2)
-    if cal.button("✅ SATIN AL", use_container_width=True):
+    if cal.button("✅ AL", use_container_width=True):
         if st.session_state.cash >= fiyat * mik:
             st.session_state.cash -= fiyat * mik
             st.session_state.portfolio[st.session_state.selected_stock] += mik
             st.rerun()
-    if csat.button("❌ SATIŞ YAP", use_container_width=True):
+    if csat.button("❌ SAT", use_container_width=True):
         if st.session_state.portfolio[st.session_state.selected_stock] >= mik:
             st.session_state.cash += fiyat * mik
             st.session_state.portfolio[st.session_state.selected_stock] -= mik
             st.rerun()
 
-# --- 7. AI PORTFÖYÜ (ÇEŞİTLENDİRİLMİŞ) ---
+# --- 7. AI PORTFÖYÜ ---
 st.divider()
 st.subheader("🤖 Yapay Zeka (AI) Portföyü")
 ai_total = st.session_state.ai_cash + sum(v * st.session_state.prices[k] for k, v in st.session_state.ai_portfolio.items())
-st.write(f"🗨️ **AI Mesajı:** {st.session_state.ai_log} | **Toplam Varlık:** {round(ai_total, 2)} TL")
+st.info(f"🗨️ **AI Hamlesi:** {st.session_state.ai_log} | **AI Toplam Varlık:** {round(ai_total, 2)} TL")
 
 ai_df = pd.DataFrame([{"Hisse": k, "Adet": v, "Bakiye": round(v*st.session_state.prices[k], 2)} 
                       for k, v in st.session_state.ai_portfolio.items() if v > 0])
@@ -102,26 +116,24 @@ st.dataframe(ai_df, use_container_width=True, hide_index=True)
 
 # --- 8. TUR YÖNETİMİ ---
 st.divider()
-if st.button("🚀 SONRAKİ TURU BAŞLAT (Büyük Dalga & AI Kararı)", use_container_width=True):
-    ai_actions = []
+if st.button("🚀 SONRAKİ TURU BAŞLAT (Max %10 Hareket)", use_container_width=True):
     for k in SIRKETLER:
-        old_p = st.session_state.prices[k]
-        change = random.uniform(-0.10, 0.10) # Max %10 limit
-        
-        # AI Stratejisi: Akıllı Nakit ve Portföy Yönetimi
-        if change < -0.05 and st.session_state.ai_cash > old_p * 20:
-            st.session_state.ai_cash -= old_p * 20
-            st.session_state.ai_portfolio[k] += 20
-            ai_actions.append(f"{k} toplandı.")
-        elif change > 0.07 and st.session_state.ai_portfolio[k] > 10:
-            st.session_state.ai_cash += old_p * 10
-            st.session_state.ai_portfolio[k] -= 10
-            ai_actions.append(f"{k} kâr alındı.")
-
         st.session_state.history[k].append(st.session_state.prices[k])
+        change = random.uniform(-0.10, 0.10)
         st.session_state.prices[k] *= (1 + change)
+        
+        # AI Strateji (Alttan toplama)
+        if change < -0.06 and st.session_state.ai_cash > st.session_state.prices[k] * 20:
+            st.session_state.ai_cash -= st.session_state.prices[k] * 20
+            st.session_state.ai_portfolio[k] += 20
+            st.session_state.ai_log = f"{k} düşükten toplandı."
 
     st.session_state.round += 1
-    st.session_state.ai_log = " | ".join(ai_actions[-3:]) if ai_actions else "AI bekleyişte."
     st.balloons()
     st.rerun()
+
+# --- 9. OTOMATİK YENİLEME TETİKLEYİCİ ---
+# Bu kod sayfanın arka planda 5 saniyede bir yenilenmesini sağlar
+st.empty()
+time.sleep(5)
+st.rerun()
